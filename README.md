@@ -24,10 +24,11 @@ A user-friendly desktop application for performing OCR (Optical Character Recogn
   - Adjustable PDF output quality (High, Medium, Low)
   - Configurable image compression settings
 - 🔍 **Debug Features**:
-  - Comprehensive logging system
-  - System information collection
-  - Dependency testing
-  - Detailed error reporting
+ - Comprehensive logging system
+ - System information collection
+ - Dependency testing
+ - Detailed error reporting
+- Automatic chunking for large PDFs
 
 ## Prerequisites
 
@@ -36,7 +37,7 @@ Before using this application, ensure you have the following installed:
 1. **Python 3.7 or higher**
 2. **Required Python packages**:
    ```bash
-   pip install ocrmypdf
+   pip install ocrmypdf PyPDF2
    ```
 3. **System Dependencies**:
    - Tesseract OCR
@@ -119,6 +120,11 @@ Before using this application, ensure you have the following installed:
    - Use "Force OCR on all pages" mode
    - Update system fonts
    - Restart the application
+
+4. **Large PDF Timeouts**:
+   - The app automatically splits very large PDFs into chunks
+   - Ensure there is enough disk space for temporary files
+   - Try reducing the PDF quality setting if processing is slow
 
 ### Debug Features
 
