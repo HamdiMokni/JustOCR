@@ -9,6 +9,7 @@ import time
 import traceback
 from pathlib import Path
 from datetime import datetime
+from PyPDF2 import PdfReader, PdfWriter
 
 class PDFOCRApp:
     def __init__(self, root):
@@ -40,7 +41,7 @@ class PDFOCRApp:
         # Language options
         self.languages = {
             "English": "eng",
-            "French": "fra", 
+            "French": "fra",
             "Arabic": "ara",
             "Spanish": "spa",
             "German": "deu",
@@ -51,6 +52,10 @@ class PDFOCRApp:
             "Chinese Traditional": "chi_tra",
             "Japanese": "jpn"
         }
+
+        # Large PDF handling settings
+        self.large_pdf_page_threshold = 100  # number of pages to trigger chunking
+        self.chunk_size = 50  # pages per OCR chunk
         
         self.setup_ui()
         self.debug_system_info()
@@ -590,25 +595,34 @@ Log File: {self.log_file_path}"""
                     "--tesseract-config", "tessedit_do_invert=0"  # Disable image inversion
                 ])
             
-            # Add input and output files
-            cmd.extend([input_file, output_file])
-            
-            # Validate command before execution
-            is_valid, validation_msg = self.validate_ocr_command(cmd)
-            if not is_valid:
-                raise ValueError(validation_msg)
-            
-            self.log_message(f"Running command: {' '.join(cmd)}")
-            self.debug_log(f"Command length: {len(' '.join(cmd))} characters")
-            self.debug_log(f"Working directory: {os.getcwd()}")
-            
-            self.progress_var.set(50)
-            
-            # Run the command with enhanced debugging and increased timeout
-            process_start = time.time()
-            result = subprocess.run(cmd, capture_output=True, text=True, 
-                                  cwd=os.getcwd(), timeout=900)  # 15 minute timeout
-            process_time = time.time() - process_start
+            # Determine if file should be processed in chunks
+            num_pages = self.get_pdf_page_count(input_file)
+            cmd_base = cmd[:]
+
+            if num_pages >= self.large_pdf_page_threshold:
+                self.process_large_pdf(input_file, output_file, cmd_base, num_pages)
+                result = subprocess.CompletedProcess(cmd_base, 0, '', '')
+                process_time = time.time() - start_time
+            else:
+                # Add input and output files
+                cmd.extend([input_file, output_file])
+
+                # Validate command before execution
+                is_valid, validation_msg = self.validate_ocr_command(cmd)
+                if not is_valid:
+                    raise ValueError(validation_msg)
+
+                self.log_message(f"Running command: {' '.join(cmd)}")
+                self.debug_log(f"Command length: {len(' '.join(cmd))} characters")
+                self.debug_log(f"Working directory: {os.getcwd()}")
+
+                self.progress_var.set(50)
+
+                # Run the command with enhanced debugging and increased timeout
+                process_start = time.time()
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                      cwd=os.getcwd(), timeout=900)  # 15 minute timeout
+                process_time = time.time() - process_start
             
             self.debug_log(f"Process execution time: {process_time:.2f} seconds")
             self.debug_log(f"Return code: {result.returncode}")
@@ -832,6 +846,38 @@ Log File: {self.log_file_path}"""
                 return statvfs.f_frsize * statvfs.f_bavail
         except Exception:
             return -1  # Unknown
+
+    def get_pdf_page_count(self, path):
+        """Return the number of pages in a PDF"""
+        try:
+            reader = PdfReader(path)
+            return len(reader.pages)
+        except Exception as e:
+            self.debug_log(f"Error reading page count: {e}")
+            return 0
+
+    def process_large_pdf(self, input_file, output_file, base_cmd, num_pages):
+        """Process large PDFs in smaller chunks to avoid errors"""
+        try:
+            self.log_message("Large PDF detected - processing in chunks")
+            writer = PdfWriter()
+            for start in range(1, num_pages + 1, self.chunk_size):
+                end = min(start + self.chunk_size - 1, num_pages)
+                tmp_output = str(Path(output_file).parent / f"tmp_{start}_{end}.pdf")
+                cmd = base_cmd + ["--pages", f"{start}-{end}", input_file, tmp_output]
+                self.debug_log(f"Running chunk {start}-{end}: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd(), timeout=900)
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr or f"Chunk {start}-{end} failed")
+                writer.append(PdfReader(tmp_output))
+                os.remove(tmp_output)
+                progress = (end / num_pages) * 100
+                self.progress_var.set(progress)
+            with open(output_file, 'wb') as f:
+                writer.write(f)
+            self.progress_var.set(100)
+        except Exception as e:
+            raise RuntimeError(f"Large PDF processing error: {e}")
     
     def open_output_folder(self, file_path):
         try:
